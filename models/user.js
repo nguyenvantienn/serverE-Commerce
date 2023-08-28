@@ -11,7 +11,7 @@ var userSchema = new mongoose.Schema({
         type : String,
         require: true
     },
-    lasttname : {
+    lastname : {
         type : String,
         require: true
     },
@@ -68,6 +68,12 @@ userSchema.pre('save', async function (next) {
     const salt = bcrypt.genSaltSync(7);
     this.password = await bcrypt.hash(this.password , salt);
 })
+
+userSchema.methods = {
+    isCheckCorrectPassword : async function(password) {
+        return await bcrypt.compare(password , this.password);
+    }
+}
 
 
 // Export User Model 
