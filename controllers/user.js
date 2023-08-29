@@ -3,6 +3,8 @@ const  asyncHandler = require('express-async-handler')
 const User =require('../models/user')
 const {generateAccessToken ,generateReFreshToken} = require('../middlewares/jwt')
 const jwt = require('jsonwebtoken')
+const {sendMail} = require('../ultils/sendMail')
+const crypto = require('crypto')
 
 const register = asyncHandler(async(req , res) =>{
     const {email, password , firstname , lastname} = req.body;
@@ -114,11 +116,75 @@ const logout = asyncHandler(async(req , res) => {
 
 })
 
+//Login reset Password
+//client gui mail => Server check email co hop le hay khong 
+//=> Gui mail + kem theo link(password change token)
+// Gui thong bao cho client vào check mail dang ky => Click vào link server gửi đến
+// =>Khi người dùng click vào link đó => Client gửi 1 api kèm theo token
+//Server check token có đúng là token server gửi đi hay không => Đúng : Cho phép thay dổi password
+
+const forgotPassword = asyncHandler(async (req , res) => {
+    const {email} = req.query;
+    if (!email) {
+        throw new Error('Missing Email!')
+    }
+    const user = await User.findOne({email : email});
+    if (!user) {
+        throw new Error('User not found. Please check')
+    }
+    const resetToken = user.createPasswordChangedToken()
+    await user.save();
+
+    const html = `To change the your password, please click on the link.Note: The link will expire after 15 minutes. <a href=${process.env.URL_SERVER}/api/user/reset-password/${resetToken}>Click here</a>`
+
+
+    const data = {
+        email: email,
+        html : html
+    };
+
+    const sendmailResetPassWord = await sendMail(data);
+    return res.status(200).json({
+        success : true,
+        rs : sendmailResetPassWord
+    })
+})
+
+
+const resetPassWord = asyncHandler(async (req , res) =>{
+    const {token , password} = req.body;
+    if (!token || !password) {
+        throw new Error('Missing Input')
+    }
+    const passwordResetToken = crypto.createHash('sha256').update(token).digest('hex');
+    const user = await User.findOne({passwordResetToken : passwordResetToken ,passwordResetExpires : {$gt : Date.now()}})
+    if(!user){
+        throw new Error('Invalid reset token( token has expired )')
+    }
+
+    //Setting new Password for User
+    user.password = password;
+    user.passwordResetToken = undefined;
+    user.passwordChangedAt = Date.now();
+    user.passwordResetExpires = undefined;
+
+    await user.save();
+
+    return res.status(200).json({
+        success : user? true : false,
+        mess : user? 'Updated Password' : 'Something went wrong'
+    })
+})
+
+
+
 
 module.exports = {
     register,
     login,
     getCurrentUser,
     refreshAccessToken,
-    logout
+    logout,
+    forgotPassword,
+    resetPassWord
 }
