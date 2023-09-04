@@ -70,6 +70,14 @@ userSchema.pre('save', async function (next) {
     this.password = await bcrypt.hash(this.password , salt);
 })
 
+userSchema.pre('update', async function (next) {
+    if (!this.isModified('password')) {
+        next();
+    }
+    const salt = bcrypt.genSaltSync(7);
+    this.password = await bcrypt.hash(this.password , salt);
+})
+
 userSchema.methods = {
     isCheckCorrectPassword : async function(password) {
         return await bcrypt.compare(password , this.password);

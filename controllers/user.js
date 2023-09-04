@@ -5,6 +5,7 @@ const {generateAccessToken ,generateReFreshToken} = require('../middlewares/jwt'
 const jwt = require('jsonwebtoken')
 const {sendMail} = require('../ultils/sendMail')
 const crypto = require('crypto')
+// const user = require('../models/user')
 
 const register = asyncHandler(async(req , res) =>{
     const {email, password , firstname , lastname} = req.body;
@@ -40,16 +41,16 @@ const login = asyncHandler(async(req , res) =>{
     const response = await User.findOne({email : email});
     // console.log(response);
     if (response && await response.isCheckCorrectPassword(password)) {
-        const {password , role , ...userData} = response.toObject()
+        const {password , role , refreshToken ,  ...userData} = response.toObject()
         //Obj.toObject() cover plain Object => Object base => Use Destructuring and Rest
         
         
         const accessToken = generateAccessToken(response._id , role);
-        const refreshToken = generateReFreshToken(response._id);
+        const newRefreshToken = generateReFreshToken(response._id);
         //Save RefreshToken into DB
-        await User.findByIdAndUpdate(response._id ,{refreshToken: refreshToken} , {new: true});
+        await User.findByIdAndUpdate(response._id ,{refreshToken: newRefreshToken} , {new: true});
         //Save refreshToken into Cookie
-        res.cookie('refreshToken',refreshToken , {httpOnly:true , maxAge: 24*60*60*1000})
+        res.cookie('refreshToken',newRefreshToken , {httpOnly:true , maxAge: 24*60*60*1000})
 
         return res.status(200).json({
             success : true,
@@ -65,16 +66,7 @@ const login = asyncHandler(async(req , res) =>{
     }
 })
 
-//Get Current User
-const getCurrentUser = asyncHandler(async(req , res) =>{
-    const { _id } = req.user;
 
-    const user = await User.findById({_id : _id }).select('-refreshToken -password -role');
-    return res.status(200).json({
-        success : true,
-        res : user? user : 'User not found!'
-    })
-})
 
 const refreshAccessToken = asyncHandler(async(req , res) => {
     //  Get token from cookies
@@ -176,8 +168,66 @@ const resetPassWord = asyncHandler(async (req , res) =>{
     })
 })
 
+//Get Current User
+const getCurrentUser = asyncHandler(async(req , res) =>{
+    const { _id } = req.user;
 
+    const user = await User.findById({_id : _id }).select('-refreshToken -password -role');
+    return res.status(200).json({
+        success : user ? true : false,
+        res : user? user : 'User not found!'
+    })
+})
 
+const getAllUser = asyncHandler(async(req ,res) =>{
+    const response = await User.find().select('-refreshToken');
+    return res.status(200).json({
+        success: response ? true : false,
+        user : response
+    })
+})
+
+const deleteUser = asyncHandler(async(req ,res) =>{
+    const {_id} = req.query
+    if(!_id){
+        throw new Error('Missing Input')
+    }
+
+    const response = await User.findByIdAndDelete(_id).select('-refreshToken');
+    return res.status(200).json({
+        success: response ? true : false,
+        mes : response ?`Delete Success User with email : ${response.email} name : ${response.firstname} ${response.lastname}` : 'Delete User failed. Dont find user to delete!!',
+        user : response
+    })
+})
+
+const updateUser = asyncHandler(async(req ,res) =>{
+    const {_id} = req.query
+    if(!_id || Object.keys(req.body).length ==0 ){
+        throw new Error('Missing Input')
+    }
+
+    const response = await User.findByIdAndUpdate(_id,req.body ,{new:true}).select('-refreshToken');
+    return res.status(200).json({
+        success: response ? true : false,
+        mes : response ?`Update Success User with email : ${response.email} name : ${response.firstname} ${response.lastname}` : 'Update User failed. Something went wrong!!',
+        user : response
+    })
+})
+
+const updateUserByAdmin = asyncHandler(async(req ,res) =>{
+    const { uid } = req.params
+    if(Object.keys(req.body).length ==0 ){
+        throw new Error('Missing Input')
+    }
+
+    const response = await User.findByIdAndUpdate(uid,req.body ,{new:true}).select('-refreshToken');
+    return res.status(200).json({
+        success: response ? true : false,
+        mes : response ?`Update Success User with email : ${response.email} name : ${response.firstname} ${response.lastname}` : 'Update User failed. Something went wrong!!',
+        user : response
+    })
+})
 
 module.exports = {
     register,
@@ -186,5 +236,9 @@ module.exports = {
     refreshAccessToken,
     logout,
     forgotPassword,
-    resetPassWord
+    resetPassWord,
+    getAllUser,
+    deleteUser,
+    updateUser,
+    updateUserByAdmin
 }
