@@ -17,13 +17,71 @@ const getDetailProduct = asyncHandler(async(req , res ) =>{
     })
 })
 
+// Filtering , sorting & pagination
 const getAllProduct = asyncHandler(async(req , res ) =>{
+    const queries = {...req.query};
+
+    //Tach cac truong dac biet ra khoi query
+    const excludeFields = ['limit' , 'sort' , 'page' , 'fields'];
+    excludeFields.forEach(el => delete queries[el])
+
+    //Format lai cac operator cho dung cu phap mongoose
+    let queryString = JSON.stringify(queries)
+    //Replace QueryString Ex: gt => $gt || gte=>$gte
+    queryString = queryString.replace(/\b(gte|gt|lt|lte)\b/g , macthedEl => `$${macthedEl}`)
+    //console.log(queryString);
+    const formatedQueries = JSON.parse(queryString);
+
+    //Filtering
+    if (queries?.title) {
+        formatedQueries.title = { $regex: queries.title , $options:'i' } //$regex : Tim kiem tuong doi & option :'i' khong phan biet chu hoa va thuong
+    }
+    let queryCommand = Product.find(formatedQueries);
     
-    const products = await Product.find()
-    return res.status(200).json({
-        success : products ? true : false,
-        DataProduct  : products ? products : 'Cannot get product'
+    //Sorting
+    if (req.query.sort) {
+        const sortBy = req.query.sort.split(',').join(' ')
+        queryCommand = queryCommand.sort(sortBy)
+    }
+
+    //Fields limiting
+    if(req.query.fields) {
+        const fields = req.query.fields.split(',').join(' ');
+        queryCommand = queryCommand.select(fields);
+    }
+    //Pagination
+    const page = +req.query.page || 1 ;
+    const limit = +req.query.limit || process.env.LIMIT_PRODUCT; //Product number a page
+    const skip = (page - 1) * limit
+
+    queryCommand.skip(skip).limit(limit);
+    //Execute query
+    // queryCommand.exec(async(err , response) =>{
+    //     if (err) {
+    //         throw new Error(err.message)
+    //     }
+    //     const counts = await Product.find(formatedQueries).countDocuments()
+    //     return res.status(200).json({
+    //         success : response ? true : false,
+    //         DataProducts  : response ? response : 'Cannot get product',
+    //         counts : counts
+    //     })
+    
+    // })
+    queryCommand
+    .then(async(response)=>{
+        console.log(formatedQueries);
+        const counts = await Product.find(formatedQueries).countDocuments()
+        return res.status(200).json({
+            success : response ? true : false,
+            counts : counts,
+            DataProducts  : response ? response : 'Cannot get product',
+        })
     })
+    .catch((err)=>{
+        throw new Error(err.message)
+    })
+    
 })
 
 //CUD product => Admin Role
@@ -71,11 +129,51 @@ const deleteProduct = asyncHandler(async(req , res ) =>{
 })
 
 
+const rating = asyncHandler(async(req , res)=>{
+    const {_id} = req.user;
+    const {star , comment , pid} = req.body;
+
+    if (!star || !pid) {
+        throw new Error('Missing Input')
+    }
+    const productToRating = await Product.findById(pid);
+    const alreadyRating = productToRating?.ratings?.find(el => el.posteBy.toString()  === _id)
+
+    console.log({alreadyRating});
+    if (alreadyRating) {
+        //User da danh gia san pham r => Update
+        await Product.updateOne({
+            ratings : {$elemMatch : alreadyRating}
+        } , {
+            $set : { "ratings.$.star" : star , "ratings.$.comment" : comment }
+        } , {new : true})
+    }else{
+        //User danh gia lan dau tien => add new star and comment
+        const response = await Product.findByIdAndUpdate(pid ,{
+            $push : {ratings: {star : star , comment: comment , posteBy:_id }}
+        } , {new : true})
+        console.log({response});
+    }
+    //average(trung binh công) of rating
+    const dataUpdatedProduct = await Product.findById(pid);
+    const ratingCount = dataUpdatedProduct.ratings.length;
+    const totalStar = dataUpdatedProduct.ratings.reduce((sum,cur)=> sum+=cur.star,0);
+    // console.log({totalStar , ratingCount});
+    dataUpdatedProduct.totalRatings = Math.round(totalStar*10 / ratingCount)/10;
+
+    await dataUpdatedProduct.save()
+
+    return res.status(200).json({
+        status: true
+    })
+})
+
 
 module.exports = {
     createProduct,
     getDetailProduct,
     getAllProduct,
     updateProduct,
-    deleteProduct
+    deleteProduct,
+    rating
 }
